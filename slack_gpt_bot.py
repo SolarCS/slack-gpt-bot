@@ -123,7 +123,7 @@ def command_handler(body, context):
         )
     
     except Exception as e:
-        print(f"Error: {e}")
+        logging_wrapper("Exception", logging.ERROR, exception=e)
         app.client.chat_postMessage(
             channel=channel_id,
             thread_ts=thread_ts,
