@@ -1,5 +1,6 @@
 import openai
 import os
+import logging
 from json_logger_stdout import json_std_logger
 from dotenv import load_dotenv
 from slack_bolt import App
@@ -20,6 +21,9 @@ from utils import (N_CHUNKS_TO_CONCAT_BEFORE_UPDATING, OPENAI_API_KEY,
 app = App(token=SLACK_BOT_TOKEN)
 openai.api_key = OPENAI_API_KEY
 
+'''
+This uses https://api.slack.com/methods/conversations.replies
+'''
 def get_conversation_history(channel_id, thread_ts):
     return app.client.conversations_replies(
         channel=channel_id,
@@ -45,14 +49,22 @@ def get_user_information(user_id):
 def build_personalized_wait_message(first_name):
     return "Hi " + first_name +"! " + "I got your request, please wait while I ask the wizard..."
 
+def logging_wrapper(message, severity=logging.INFO, **kwargs):
+    json_std_logger._setParams(**kwargs)
+
+    log = {
+        logging.DEBUG: json_std_logger.debug,
+        logging.ERROR: json_std_logger.error,
+        logging.CRITICAL: json_std_logger.critical,
+        logging.WARNING: json_std_logger.warning
+    }
+    func = log.get(severity, json_std_logger.info)
+    func(message)
+
 @app.event("app_mention")
 def command_handler(body, context):
     try:
-        json_std_logger._setParams(
-            body=body,
-            context=context
-        )
-        json_std_logger.debug('arguments') 
+        logging_wrapper("Arguments", logging.DEBUG, body=body, context=context)
 
         channel_id = body['event']['channel']
         thread_ts = body['event'].get('thread_ts', body['event']['ts'])
@@ -84,7 +96,7 @@ def command_handler(body, context):
             model="gpt-3.5-turbo",
             messages=messages,
             stream=True,
-            max_tokens=2048
+            max_tokens=4096
         )
         
         response_text = ""
@@ -101,7 +113,7 @@ def command_handler(body, context):
                 # outgoing_logger.info(f'response: {response_text}')
                 update_chat(app, channel_id, reply_message_ts, response_text)
 
-        json_std_logger._setParams(
+        logging_wrapper("RequestResponse", logging.INFO, 
             token_count=num_tokens,
             channel_id=channel_id, 
             user=user.username, 
@@ -109,10 +121,9 @@ def command_handler(body, context):
             request=messages[1:],   #field 0 is something that slack adds that we don't need
             response=response_text
         )
-        json_std_logger.info('RequestResponse')
     
     except Exception as e:
-        print(f"Error: {e}")
+        logging_wrapper("Exception", logging.ERROR, exception=e)
         app.client.chat_postMessage(
             channel=channel_id,
             thread_ts=thread_ts,
