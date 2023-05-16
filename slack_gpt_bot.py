@@ -96,7 +96,7 @@ def command_handler(body, context):
             model="gpt-3.5-turbo",
             messages=messages,
             stream=True,
-            max_tokens=4096
+            max_tokens=2048
         )
         
         response_text = ""
