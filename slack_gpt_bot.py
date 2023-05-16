@@ -7,6 +7,9 @@ from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
 from collections import namedtuple
 
+#For debugging purposes
+json_std_logger.setLevel(logging.DEBUG)
+
 load_dotenv()
 
 SLACK_BOT_TOKEN = os.environ["SLACK_BOT_TOKEN"]
@@ -123,7 +126,15 @@ def command_handler(body, context):
         )
     
     except Exception as e:
-        logging_wrapper("Exception", logging.ERROR, exception=e)
+        logging_wrapper("Exception", logging.ERROR, 
+            token_count=num_tokens,
+            channel_id=channel_id, 
+            user=user.username, 
+            email=user.email,
+            request=messages[1:],   #field 0 is something that slack adds that we don't need
+            exception=e
+        )
+
         app.client.chat_postMessage(
             channel=channel_id,
             thread_ts=thread_ts,
