@@ -7,6 +7,8 @@ from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
 from collections import namedtuple
 
+MAXIMUM_ALLOWED_TOKENS_IN_RESPONSE=2048
+
 load_dotenv()
 
 SLACK_BOT_TOKEN = os.environ["SLACK_BOT_TOKEN"]
@@ -96,7 +98,7 @@ def command_handler(body, context):
             model="gpt-3.5-turbo",
             messages=messages,
             stream=True,
-            max_tokens=2048
+            max_tokens=MAXIMUM_ALLOWED_TOKENS_IN_RESPONSE
         )
         
         response_text = ""
@@ -118,16 +120,23 @@ def command_handler(body, context):
             channel_id=channel_id, 
             user=user.username, 
             email=user.email,
-            request=messages[1:],   #field 0 is something that slack adds that we don't need
+            request=messages[1:],   #field 0 is something that gets added as part of process_conversation_history that we don't need
             response=response_text
         )
     
     except Exception as e:
-        logging_wrapper("Exception", logging.ERROR, exception=e)
+        logging_wrapper("Exception", logging.ERROR, 
+            token_count=num_tokens,
+            channel_id=channel_id, 
+            user=user.username, 
+            email=user.email,
+            request=messages[1:],
+            exception=e
+        )
         app.client.chat_postMessage(
             channel=channel_id,
             thread_ts=thread_ts,
-            text=f"I can't provide a response. Encountered an error:\n`\n{e}\n`")
+            text=f"Sorry, I can't provide a response. Encountered an error:\n`\n{e}\n`")
 
 
 if __name__ == "__main__":

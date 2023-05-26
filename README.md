@@ -102,4 +102,22 @@ gcloud auth login
 gcloud config set project qaload-track-atlas-ch-e4e9
 gcloud auth configure-docker
 ```
+# Tokens
+The model that we are using (gpt-3.5-turbo) has a MAXIMUM CONTEXT LENGTH of 4097 tokens. MAXIMUM CONTEXT LENGTH appears 
+to be a function of the input token length (length of your prompt) PLUS the MAXIMUM ALLOWED in the response. The MAXIMUM 
+ALLOWED in the response is determined by the `max_tokens` field.
+For example, if `max_tokens` is set to 4096, and the input message is
+```
+why is the sky blue?
+```
+which has a token count of 6 (you can see for yourself here: https://platform.openai.com/tokenizer), the math breaks down to
+```
+4097 < 6 + 4096
+```
+And this results in an error as it exceeds the maximum context length. It doesn’t matter if the actual response is less, since openai will not execute your request, since the allocation plus your input exceeds the maximum context length.
 
+Right now `max_tokens` is set to 2048, which means that your responses are capped at 2048 tokens, but you also get 2048 tokens 
+on input. If we increase `max_tokens`, then we reduce your prompt length and vice versa. 
+```
+TODO: Look at whether we can dynamically figure out the `max_token` setting before making the request.
+```
