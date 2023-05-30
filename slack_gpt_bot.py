@@ -75,13 +75,21 @@ def command_handler(body, context):
 
         user = get_user_information(user_id)
 
-        if channel_id != 'C057NBLL2G4': #lock to test channel for beta
-            slack_resp = app.client.chat_postMessage( 
-                channel=channel_id,
-                thread_ts=thread_ts,
-                text="Our apologies, however the Beta ChatGPT bot is not allowed outside of the beta-slack-chatgpt-bot channel"
-            )
-            return
+        '''
+        How to lock the bot to a particular channel
+        -------------------------------------------
+        In this case, for the beta testing we created the channel,
+        beta-slack-chatgpt-bot (channel_id: C057NBLL2G4). If the message
+        didn't originate from this channel, you got a polite message and 
+        were denied access.
+        '''
+        # if channel_id != 'C057NBLL2G4': #lock to test channel for beta
+        #     slack_resp = app.client.chat_postMessage( 
+        #         channel=channel_id,
+        #         thread_ts=thread_ts,
+        #         text="Our apologies, however the Beta ChatGPT bot is not allowed outside of the beta-slack-chatgpt-bot channel"
+        #     )
+        #     return
 
         slack_resp = app.client.chat_postMessage(
             channel=channel_id,
