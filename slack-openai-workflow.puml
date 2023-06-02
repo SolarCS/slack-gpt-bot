@@ -1,0 +1,20 @@
+@startuml
+actor User as user
+participant SlackApplication as slack
+participant SlackBoltAPI as slackAPI
+participant CipherGptBot as cipher_gpt_bot
+participant OpenAIChatAPI as openAI
+
+== Initialization ==
+cipher_gpt_bot <-> slack : websocket connection through the Slack Bolt API
+
+== Bot Usage ==
+user -> slack : @cipher-gpt-bot invocation
+slack -> cipher_gpt_bot : user prompt is forwarded
+cipher_gpt_bot -> slackAPI : get user details (for logging)
+slackAPI --> cipher_gpt_bot : user details
+cipher_gpt_bot -> slack : "Please wait" message is displayed in app
+cipher_gpt_bot -> openAI : user "prompt"
+openAI --> cipher_gpt_bot : prompt's response
+cipher_gpt_bot -> slack : prompt's response is displayed in app
+@enduml

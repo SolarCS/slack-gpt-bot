@@ -121,3 +121,6 @@ on input. If we increase `max_tokens`, then we reduce your prompt length and vic
 ```
 TODO: Look at whether we can dynamically figure out the `max_token` setting before making the request.
 ```
+
+# Workflow Diagram
+![Workflow Diagram](out/slack-openai-workflow/slack-openai-workflow.png)
