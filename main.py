@@ -1,6 +1,7 @@
 import logging
 from json_logger_stdout import json_std_logger
 from collections import namedtuple
+from functools import partial
 
 from utils import (N_CHUNKS_TO_CONCAT_BEFORE_UPDATING, OPENAI_API_KEY,
                    num_tokens_from_messages, process_conversation_history,
@@ -74,7 +75,22 @@ def determine_openai_model_to_use(input_token_count):
         return (OPENAI_MODEL_EXTENDED, OPENAI_MODEL_EXTENDED_MAX_TOKENS)
     else:
         return (OPENAI_MODEL_DEFAULT, OPENAI_MODEL_MAX_TOKENS)
+
+def stream_openai_response_to_slack(openai_response, slack_update_func):
+    response_text = ""
+    ii = 0
+    for chunk in openai_response:
+        if chunk.choices[0].delta.get('content'):
+            ii = ii + 1
+            response_text += chunk.choices[0].delta.content
+            if ii > N_CHUNKS_TO_CONCAT_BEFORE_UPDATING:
+                slack_update_func(response_text)
+                ii = 0
+        elif chunk.choices[0].finish_reason == 'stop':
+           slack_update_func(response_text)
     
+    return response_text
+
 ################################################
 @app.event("app_mention")
 def handle_app_mentions(body, context):
@@ -160,27 +176,8 @@ def handle_app_mentions(body, context):
             max_tokens=max_response_tokens #if this drops below 0, openai should throw an exception
         )
         
-        '''
-        REFACTOR THIS INTO...
-        def stream_openai_response_to_slack(openai_response, slack_update_func) ...
-        
-        #A function that takes a string
-        slack_update_func = partial_func(update_chat(app, channel_id, reply_message_ts)
-        stream_openai_response_to_slack(openai_response, slack_update_func)
-        '''
-        response_text = ""
-        ii = 0
-        for chunk in openai_response:
-            if chunk.choices[0].delta.get('content'):
-                ii = ii + 1
-                response_text += chunk.choices[0].delta.content
-                if ii > N_CHUNKS_TO_CONCAT_BEFORE_UPDATING:
-                    # outgoing_logger.info(f'response: {response_text}')
-                    update_chat(app, channel_id, reply_message_ts, response_text)
-                    ii = 0
-            elif chunk.choices[0].finish_reason == 'stop':
-                # outgoing_logger.info(f'response: {response_text}')
-                update_chat(app, channel_id, reply_message_ts, response_text)
+        slack_update_func = partial(update_chat, app, channel_id, reply_message_ts)
+        response_text = stream_openai_response_to_slack(openai_response, slack_update_func)
 
         logging_wrapper("RequestResponse", logging.INFO,
             model_used=model,
