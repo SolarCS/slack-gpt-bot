@@ -94,12 +94,15 @@ def stream_openai_response_to_slack(openai_response, slack_update_func):
 ################################################
 @app.event("app_mention")
 def handle_app_mentions(body, context):
+    num_conversation_tokens = None
+    max_response_tokens = None
+    channel_id = None
+    thread_ts = None
     try:
         logging_wrapper("Arguments", logging.DEBUG, body=body, context=context)
 
         channel_id = body['event']['channel']
         thread_ts = body['event'].get('thread_ts', body['event']['ts'])
-        print(f'thread_ts: {thread_ts}')
         bot_user_id = context['bot_user_id']
         user_id = context['user_id']
 
@@ -135,7 +138,7 @@ def handle_app_mentions(body, context):
         
         '''
         print(openai.Model.list())
-        This API does not tell you anything about the number of tokens supported by the model, yet
+        This API does not tell you anything about the number of tokens supported by the model
         ...
         {
             "created": 1683758102,
