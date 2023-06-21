@@ -2,30 +2,31 @@ import openai
 import os
 import logging
 from json_logger_stdout import json_std_logger
-from dotenv import load_dotenv
+# from dotenv import load_dotenv
 from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
 from collections import namedtuple
 
-MAXIMUM_ALLOWED_TOKENS_IN_RESPONSE=2048
-
-load_dotenv()
-
-SLACK_BOT_TOKEN = os.environ["SLACK_BOT_TOKEN"]
-SLACK_APP_TOKEN = os.environ["SLACK_APP_TOKEN"]
-OPENAI_API_KEY = os.environ["OPENAI_API_KEY"]
 
 from utils import (N_CHUNKS_TO_CONCAT_BEFORE_UPDATING, OPENAI_API_KEY,
-                   SLACK_APP_TOKEN, SLACK_BOT_TOKEN, WAIT_MESSAGE,
+                   SLACK_APP_TOKEN, SLACK_BOT_TOKEN,
                    num_tokens_from_messages, process_conversation_history,
                    update_chat)
 
 app = App(token=SLACK_BOT_TOKEN)
 openai.api_key = OPENAI_API_KEY
 
-'''
-This uses https://api.slack.com/methods/conversations.replies
-'''
+################################################
+
+OPENAI_MODEL_DEFAULT = "gpt-3.5-turbo"
+OPENAI_MODEL_MAX_TOKENS = 4096
+
+OPENAI_MODEL_CROSSOVER_POINT = OPENAI_MODEL_MAX_TOKENS * 0.75
+
+OPENAI_MODEL_EXTENDED = "gpt-3.5-turbo-16k"
+OPENAI_MODEL_EXTENDED_MAX_TOKENS = 16384
+
+################################################
 def get_conversation_history(channel_id, thread_ts):
     return app.client.conversations_replies(
         channel=channel_id,
@@ -63,8 +64,41 @@ def logging_wrapper(message, severity=logging.INFO, **kwargs):
     func = log.get(severity, json_std_logger.info)
     func(message)
 
+'''
+gpt-3.5-turbo-16k offers 4 times the context length of gpt-3.5-turbo at twice the price: 
+$0.003 per 1K input tokens and $0.004 per 1K output tokens. 
+
+So if the conversation exceeds the cutoff, then switch to using the extended model. Otherwise, use 
+the standard model, as that seems fine for most conversations at this point.
+'''
+def determine_openai_model_to_use(input_token_count):
+    if input_token_count > OPENAI_MODEL_CROSSOVER_POINT:
+        return (OPENAI_MODEL_EXTENDED, OPENAI_MODEL_EXTENDED_MAX_TOKENS)
+    else:
+        return (OPENAI_MODEL_DEFAULT, OPENAI_MODEL_MAX_TOKENS)
+
+def stream_openai_response_to_slack(openai_response, slack_update_func):
+    response_text = ""
+    ii = 0
+    for chunk in openai_response:
+        if chunk.choices[0].delta.get('content'):
+            ii = ii + 1
+            response_text += chunk.choices[0].delta.content
+            if ii > N_CHUNKS_TO_CONCAT_BEFORE_UPDATING:
+                slack_update_func(response_text)
+                ii = 0
+        elif chunk.choices[0].finish_reason == 'stop':
+           slack_update_func(response_text)
+    
+    return response_text
+
+################################################
 @app.event("app_mention")
-def command_handler(body, context):
+def handle_app_mentions(body, context):
+    num_conversation_tokens = None
+    max_response_tokens = None
+    channel_id = None
+    thread_ts = None
     try:
         logging_wrapper("Arguments", logging.DEBUG, body=body, context=context)
 
@@ -82,14 +116,15 @@ def command_handler(body, context):
         beta-slack-chatgpt-bot (channel_id: C057NBLL2G4). If the message
         didn't originate from this channel, you got a polite message and 
         were denied access.
+        
+        if channel_id != 'C057NBLL2G4': #lock to test channel for beta
+            slack_resp = app.client.chat_postMessage( 
+                channel=channel_id,
+                thread_ts=thread_ts,
+                text="Our apologies, however the Beta ChatGPT bot is not allowed outside of the beta-slack-chatgpt-bot channel"
+            )
+            return
         '''
-        # if channel_id != 'C057NBLL2G4': #lock to test channel for beta
-        #     slack_resp = app.client.chat_postMessage( 
-        #         channel=channel_id,
-        #         thread_ts=thread_ts,
-        #         text="Our apologies, however the Beta ChatGPT bot is not allowed outside of the beta-slack-chatgpt-bot channel"
-        #     )
-        #     return
 
         slack_resp = app.client.chat_postMessage(
             channel=channel_id,
@@ -100,32 +135,60 @@ def command_handler(body, context):
         reply_message_ts = slack_resp['message']['ts']
         conversation_history = get_conversation_history(channel_id, thread_ts)
         messages = process_conversation_history(conversation_history, bot_user_id)
-        num_tokens = num_tokens_from_messages(messages)
+        num_conversation_tokens = num_tokens_from_messages(messages, OPENAI_MODEL_DEFAULT)
         
+        '''
+        print(openai.Model.list())
+        This API does not tell you anything about the number of tokens supported by the model
+        ...
+        {
+            "created": 1683758102,
+            "id": "gpt-3.5-turbo-16k",
+            "object": "model",
+            "owned_by": "openai-internal",
+            "parent": null,
+            "permission": [
+                {
+                "allow_create_engine": false,
+                "allow_fine_tuning": false,
+                "allow_logprobs": true,
+                "allow_sampling": true,
+                "allow_search_indices": false,
+                "allow_view": true,
+                "created": 1686799823,
+                "group": null,
+                "id": "modelperm-LMK1z45vFJF9tVUvKb3pZfMG",
+                "is_blocking": false,
+                "object": "model_permission",
+                "organization": "*"
+                }
+            ],
+            "root": "gpt-3.5-turbo-16k"
+        },
+        '''
+
+        #Pick the model to use based on the number of tokens used thus far
+        #picking the extended model, means spending more, so only select that when 
+        #necessary
+        model, token_count = determine_openai_model_to_use(num_conversation_tokens)
+
+        max_response_tokens = token_count-num_conversation_tokens
         openai_response = openai.ChatCompletion.create(
-            model="gpt-3.5-turbo",
+            model=model,
             messages=messages,
             stream=True,
-            max_tokens=MAXIMUM_ALLOWED_TOKENS_IN_RESPONSE
+            max_tokens=max_response_tokens #if this drops below 0, openai should throw an exception
         )
         
-        response_text = ""
-        ii = 0
-        for chunk in openai_response:
-            if chunk.choices[0].delta.get('content'):
-                ii = ii + 1
-                response_text += chunk.choices[0].delta.content
-                if ii > N_CHUNKS_TO_CONCAT_BEFORE_UPDATING:
-                    # outgoing_logger.info(f'response: {response_text}')
-                    update_chat(app, channel_id, reply_message_ts, response_text)
-                    ii = 0
-            elif chunk.choices[0].finish_reason == 'stop':
-                # outgoing_logger.info(f'response: {response_text}')
-                update_chat(app, channel_id, reply_message_ts, response_text)
+        slack_update_func = partial(update_chat, app, channel_id, reply_message_ts)
+        response_text = stream_openai_response_to_slack(openai_response, slack_update_func)
 
-        logging_wrapper("RequestResponse", logging.INFO, 
-            token_count=num_tokens,
-            channel_id=channel_id, 
+        logging_wrapper("RequestResponse", logging.INFO,
+            model_used=model,
+            token_used_count=num_conversation_tokens,
+            max_response_tokens=max_response_tokens,
+            channel_id=channel_id,
+            thread_ts=thread_ts,
             user=user.username, 
             email=user.email,
             request=messages[1:],   #field 0 is something that gets added as part of process_conversation_history that we don't need
@@ -134,8 +197,10 @@ def command_handler(body, context):
     
     except Exception as e:
         logging_wrapper("Exception", logging.ERROR, 
-            token_count=num_tokens,
+            token_used_count=num_conversation_tokens,
+            max_response_tokens=max_response_tokens,
             channel_id=channel_id, 
+            thread_ts=thread_ts,
             user=user.username, 
             email=user.email,
             request=messages[1:],
@@ -146,7 +211,7 @@ def command_handler(body, context):
             thread_ts=thread_ts,
             text=f"Sorry, I can't provide a response. Encountered an error:\n`\n{e}\n`")
 
-
+################################################
 if __name__ == "__main__":
     handler = SocketModeHandler(app, SLACK_APP_TOKEN)
     handler.start()
