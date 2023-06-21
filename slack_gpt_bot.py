@@ -6,6 +6,7 @@ from json_logger_stdout import json_std_logger
 from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
 from collections import namedtuple
+from functools import partial
 
 
 from utils import (N_CHUNKS_TO_CONCAT_BEFORE_UPDATING, OPENAI_API_KEY,
