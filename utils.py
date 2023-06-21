@@ -8,8 +8,8 @@ from trafilatura.settings import use_config
 newconfig = use_config()
 newconfig.set("DEFAULT", "EXTRACTION_TIMEOUT", "0")
 
-# SLACK_BOT_TOKEN = os.getenv("SLACK_BOT_TOKEN")
-# SLACK_APP_TOKEN = os.getenv("SLACK_APP_TOKEN")
+SLACK_BOT_TOKEN = os.getenv("SLACK_BOT_TOKEN")
+SLACK_APP_TOKEN = os.getenv("SLACK_APP_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
 SYSTEM_PROMPT = '''
