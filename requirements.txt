@@ -1,10 +1,7 @@
-slack-bolt
-slack-sdk
-requests
-beautifulsoup4
+slack_bolt
+Flask>=1.1
+gunicorn>=20
 openai
 tiktoken
 trafilatura
-python-dotenv
-# json_log_formatter
 json-logger-stdout

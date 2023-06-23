@@ -1,20 +1,18 @@
-import openai
-import os
 import logging
 from json_logger_stdout import json_std_logger
-# from dotenv import load_dotenv
-from slack_bolt import App
-from slack_bolt.adapter.socket_mode import SocketModeHandler
 from collections import namedtuple
 from functools import partial
 
-
 from utils import (N_CHUNKS_TO_CONCAT_BEFORE_UPDATING, OPENAI_API_KEY,
-                   SLACK_APP_TOKEN, SLACK_BOT_TOKEN,
                    num_tokens_from_messages, process_conversation_history,
                    update_chat)
 
-app = App(token=SLACK_BOT_TOKEN)
+
+from slack_bolt import App
+import openai
+
+logging.basicConfig(level=logging.DEBUG)
+app = App()
 openai.api_key = OPENAI_API_KEY
 
 ################################################
@@ -212,7 +210,20 @@ def handle_app_mentions(body, context):
             thread_ts=thread_ts,
             text=f"Sorry, I can't provide a response. Encountered an error:\n`\n{e}\n`")
 
+# @app.command("/hello-bolt-python")
+# def hello(body, ack):
+#     user_id = body["user_id"]
+#     ack(f"Hi <@{user_id}>!")
+
 ################################################
-if __name__ == "__main__":
-    handler = SocketModeHandler(app, SLACK_APP_TOKEN)
-    handler.start()
+from flask import Flask, request
+from slack_bolt.adapter.flask import SlackRequestHandler
+
+flask_app = Flask(__name__)
+handler = SlackRequestHandler(app)
+
+
+@flask_app.route("/slack/events", methods=["POST"])
+def slack_events():
+    print('slack event received')
+    return handler.handle(request)
