@@ -192,7 +192,7 @@ def handle_app_mentions(body, context):
             thread_ts=thread_ts,
             user=user.username, 
             email=user.email,
-            request=messages[1:],   #field 0 is something that gets added as part of process_conversation_history that we don't need
+            request=messages[-1],   #field 0 is something that gets added as part of process_conversation_history that we don't need
             response=response_text
         )
     
@@ -204,7 +204,7 @@ def handle_app_mentions(body, context):
             thread_ts=thread_ts,
             user=user.username, 
             email=user.email,
-            request=messages[1:],
+            request=messages[-1],
             exception=e
         )
         app.client.chat_postMessage(
