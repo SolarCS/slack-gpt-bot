@@ -11,7 +11,10 @@ from utils import (N_CHUNKS_TO_CONCAT_BEFORE_UPDATING, OPENAI_API_KEY,
 from slack_bolt import App
 import openai
 
+#DEBUG Configuration
 logging.basicConfig(level=logging.DEBUG)
+json_std_logger.setLevel (logging.DEBUG)
+
 app = App()
 openai.api_key = OPENAI_API_KEY
 
@@ -106,6 +109,9 @@ def handle_app_mentions(body, context):
         bot_user_id = context['bot_user_id']
         user_id = context['user_id']
 
+        logging_wrapper("Milestone", logging.DEBUG, 
+                milestone="Fetching user information from slack",
+                user_id=user_id)
         user = get_user_information(user_id)
 
         '''
@@ -124,16 +130,31 @@ def handle_app_mentions(body, context):
             )
             return
         '''
-
         slack_resp = app.client.chat_postMessage(
             channel=channel_id,
             thread_ts=thread_ts,
             text=build_personalized_wait_message(user.first_name)
         )
 
+        logging_wrapper("Milestone", logging.DEBUG, 
+                milestone="Fetching conversation history from slack",
+                email=user.email,
+                channel=channel_id,
+                thread_ts=thread_ts)
+
         reply_message_ts = slack_resp['message']['ts']
         conversation_history = get_conversation_history(channel_id, thread_ts)
+
+        logging_wrapper("Milestone", logging.DEBUG, 
+                milestone="Processing conversation history from slack",
+                email=user.email,
+                channel=channel_id,
+                thread_ts=thread_ts)
         messages = process_conversation_history(conversation_history, bot_user_id)
+
+        logging_wrapper("Milestone", logging.DEBUG, 
+                milestone="Counting tokens",
+                messages=messages)
         num_conversation_tokens = num_tokens_from_messages(messages, OPENAI_MODEL_DEFAULT)
         
         '''
@@ -166,12 +187,23 @@ def handle_app_mentions(body, context):
         },
         '''
 
+        logging_wrapper("Milestone", logging.DEBUG, 
+                milestone="Determining OpenAI Model to use",
+                num_conversation_tokens=num_conversation_tokens)
+
         #Pick the model to use based on the number of tokens used thus far
         #picking the extended model, means spending more, so only select that when 
         #necessary
         model, token_count = determine_openai_model_to_use(num_conversation_tokens)
 
         max_response_tokens = token_count-num_conversation_tokens
+        logging_wrapper("Milestone", logging.DEBUG, 
+                        milestone="Forwarding request to OpenAI",
+                        model_used=model,
+                        token_used_count=num_conversation_tokens,
+                        email=user.email,
+                        request=messages[-1])
+ 
         openai_response = openai.ChatCompletion.create(
             model=model,
             messages=messages,
