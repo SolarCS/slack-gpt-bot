@@ -8,8 +8,8 @@ from trafilatura.settings import use_config
 import logging
 from json_logger_stdout import json_std_logger
 
-logging.basicConfig(level=logging.DEBUG)
-json_std_logger.setLevel (logging.DEBUG)
+logging.basicConfig(level=logging.INFO)
+json_std_logger.setLevel (logging.INFO)
 
 newconfig = use_config()
 newconfig.set("DEFAULT", "EXTRACTION_TIMEOUT", "0")

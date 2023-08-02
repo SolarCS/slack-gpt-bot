@@ -12,14 +12,14 @@ from slack_bolt import App
 import openai
 
 #DEBUG Configuration
-logging.basicConfig(level=logging.DEBUG)
-json_std_logger.setLevel (logging.DEBUG)
+logging.basicConfig(level=logging.INFO)
+json_std_logger.setLevel (logging.INFO)
 
 app = App()
 openai.api_key = OPENAI_API_KEY
 
 ################################################
-
+# GPT 3.5 Models
 OPENAI_MODEL_DEFAULT = "gpt-3.5-turbo"
 OPENAI_MODEL_MAX_TOKENS = 4096
 
@@ -27,7 +27,26 @@ OPENAI_MODEL_CROSSOVER_POINT = OPENAI_MODEL_MAX_TOKENS * 0.75
 
 OPENAI_MODEL_EXTENDED = "gpt-3.5-turbo-16k"
 OPENAI_MODEL_EXTENDED_MAX_TOKENS = 16384
+#-----------------------------------------------
+# GPT 4 Models
+OPENAI_MODEL_4_DEFAULT = "gpt-4"
+OPENAI_MODEL_4_MAX_TOKENS = 8192 - 1
 
+OPENAI_MODEL_4_CROSSOVER_POINT = OPENAI_MODEL_4_MAX_TOKENS * 0.75
+
+OPENAI_MODEL_4_EXTENDED = "gpt-4-32k-0613"
+OPENAI_MODEL_4_EXTENDED_MAX_TOKENS = 32768 - 1
+
+'''
+https://help.openai.com/en/articles/7102672-how-can-i-access-gpt-4
+
+8/1/23: We are not currently granting access to GPT-4-32K API at this time, 
+but it will be made available at a later date.
+'''
+OPENAI_MODEL_4_EXTENDED_FEATURE_FLAG = False
+#-----------------------------------------------
+# Model to use
+OPENAI_MODEL_IN_USE = OPENAI_MODEL_4_DEFAULT
 ################################################
 def get_conversation_history(channel_id, thread_ts):
     return app.client.conversations_replies(
@@ -73,11 +92,20 @@ $0.003 per 1K input tokens and $0.004 per 1K output tokens.
 So if the conversation exceeds the cutoff, then switch to using the extended model. Otherwise, use 
 the standard model, as that seems fine for most conversations at this point.
 '''
-def determine_openai_model_to_use(input_token_count):
+def determine_openai_model_3_5_to_use(input_token_count):
     if input_token_count > OPENAI_MODEL_CROSSOVER_POINT:
         return (OPENAI_MODEL_EXTENDED, OPENAI_MODEL_EXTENDED_MAX_TOKENS)
     else:
         return (OPENAI_MODEL_DEFAULT, OPENAI_MODEL_MAX_TOKENS)
+
+def determine_openai_model_4_to_use(input_token_count):
+    if OPENAI_MODEL_4_EXTENDED_FEATURE_FLAG:
+        if input_token_count > OPENAI_MODEL_4_CROSSOVER_POINT:
+            return (OPENAI_MODEL_4_EXTENDED, OPENAI_MODEL_4_EXTENDED_MAX_TOKENS)
+        else:
+            return (OPENAI_MODEL_4_DEFAULT, OPENAI_MODEL_4_MAX_TOKENS)
+    else:
+        return (OPENAI_MODEL_4_DEFAULT, OPENAI_MODEL_4_MAX_TOKENS)
 
 def stream_openai_response_to_slack(openai_response, slack_update_func):
     response_text = ""
@@ -101,6 +129,8 @@ def handle_app_mentions(body, context):
     max_response_tokens = None
     channel_id = None
     thread_ts = None
+    model = None
+    token_count = None
     try:
         logging_wrapper("Arguments", logging.DEBUG, body=body, context=context)
 
@@ -155,7 +185,8 @@ def handle_app_mentions(body, context):
         logging_wrapper("Milestone", logging.DEBUG, 
                 milestone="Counting tokens",
                 messages=messages)
-        num_conversation_tokens = num_tokens_from_messages(messages, OPENAI_MODEL_DEFAULT)
+        # num_conversation_tokens = num_tokens_from_messages(messages, OPENAI_MODEL_DEFAULT)
+        num_conversation_tokens = num_tokens_from_messages(messages, OPENAI_MODEL_IN_USE)
         
         '''
         print(openai.Model.list())
@@ -194,12 +225,14 @@ def handle_app_mentions(body, context):
         #Pick the model to use based on the number of tokens used thus far
         #picking the extended model, means spending more, so only select that when 
         #necessary
-        model, token_count = determine_openai_model_to_use(num_conversation_tokens)
+        # model, token_count = determine_openai_model_3_5_to_use(num_conversation_tokens)
+        model, token_count = determine_openai_model_4_to_use(num_conversation_tokens)
 
         max_response_tokens = token_count-num_conversation_tokens
         logging_wrapper("Milestone", logging.DEBUG, 
                         milestone="Forwarding request to OpenAI",
                         model_used=model,
+                        token_count=token_count,
                         token_used_count=num_conversation_tokens,
                         email=user.email,
                         request=messages[-1])
@@ -228,6 +261,7 @@ def handle_app_mentions(body, context):
     
     except Exception as e:
         logging_wrapper("Exception", logging.ERROR, 
+            model_used=model,
             token_used_count=num_conversation_tokens,
             max_response_tokens=max_response_tokens,
             channel_id=channel_id, 
