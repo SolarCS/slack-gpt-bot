@@ -1,9 +1,7 @@
-import openai
-import os
-import logging
-from json_logger_stdout import json_std_logger
-# from dotenv import load_dotenv
-
+'''
+Slack GPT Chat Bot
+Powered by a Slack Websockets
+'''
 from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
 
