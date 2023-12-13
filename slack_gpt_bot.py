@@ -172,15 +172,10 @@ class SlackGPTBot:
             bot_user_id = context['bot_user_id']
             user_id = context['user_id']
 
-            #Use Sheela's id for testing
-            user_id = "URRC5BGAF"
-
             self.logging_wrapper("Milestone", logging.DEBUG, 
                     milestone="Fetching user information from slack",
                     user_id=user_id)
             user = self.get_user_information(user_id)
-
-            print(user)
 
             '''
             How to lock the bot to a particular channel
