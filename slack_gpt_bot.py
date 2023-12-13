@@ -7,15 +7,17 @@ from utils import (N_CHUNKS_TO_CONCAT_BEFORE_UPDATING, OPENAI_API_KEY,
                    num_tokens_from_messages, process_conversation_history,
                    update_chat)
 
-
-from slack_bolt import App
 import openai
 
-#DEBUG Configuration
-logging.basicConfig(level=logging.INFO)
-json_std_logger.setLevel (logging.INFO)
+#Logging Configuration
+DEBUG = False
+if DEBUG:
+    logging.basicConfig(level=logging.DEBUG)
+    json_std_logger.setLevel (logging.DEBUG)
+else:
+    logging.basicConfig(level=logging.INFO)
+    json_std_logger.setLevel (logging.INFO)
 
-app = App()
 openai.api_key = OPENAI_API_KEY
 
 ################################################
@@ -49,7 +51,7 @@ OPENAI_MODEL_4_EXTENDED_FEATURE_FLAG = False
 OPENAI_MODEL_IN_USE = OPENAI_MODEL_4_DEFAULT
 ################################################
 
-User = namedtuple('User', ('username', 'display_name', 'first_name', 'last_name', 'email'))
+User = namedtuple('User', ('user_id','username','real_name','email'))
 class SlackGPTBot:
     def __init__(self, app, model_to_use):
         self.app = app
@@ -66,19 +68,43 @@ class SlackGPTBot:
     This uses https://api.slack.com/methods/users.profile.get
     '''
     def get_user_information(self, user_id):
-            result = self.app.client.users_info(
+            user_info = self.app.client.users_info(
                 user=user_id
             )
 
-            return User(result['user']['name'], 
-                    result['user']['profile']['display_name'],
-                    result['user']['profile']['first_name'],
-                    result['user']['profile']['last_name'],
-                    result['user']['profile']['email'])
+            user = None
+            try:
+                # user_info['user]['profile']['first_name'] - not guaranteed
+                # user_info['user]['profile']['last_name'] - not guaranteed
 
-    def build_personalized_wait_message(self, first_name):
+                user = User(user_id, user_info['user']['name'], 
+                            user_info['user']['profile']['first_name'],
+                            user_info['user']['profile']['email'])
+            except KeyError as e:
+                #-In the event that Slack deprecates a field
+                self.logging_wrapper("Slack_Warning",logging.WARNING, 
+                                     user_id=user_id,
+                                     exception="KeyError: " + str(e),
+                                     profile=user_info)
+                user = User(user_id, "", "", "")
+            finally:
+                return user
+
+    def build_personalized_wait_message(self, real_name):
+        first_name = self.extract_first_name(real_name)
         return "Hi " + first_name +"! " + "I got your request, please wait while I ask the wizard..."
 
+    # Write a method that takes a user's real name, a string in the format of "first last", and extract the first part 
+    # of the string. Be sure to handle the case where the real name is just "first" and the case where real name is "".
+    def extract_first_name(self, real_name):
+        if real_name == "":
+            return ""
+        else:
+            return real_name.split()[0]
+
+    '''
+    This method is used to log messages to the console and to the json_logger_stdout
+    '''
     def logging_wrapper(self, message, severity=logging.INFO, **kwargs):
         json_std_logger._setParams(**kwargs)
 
@@ -137,6 +163,7 @@ class SlackGPTBot:
         thread_ts = None
         model = None
         token_count = None
+
         try:
             self.logging_wrapper("Arguments", logging.DEBUG, body=body, context=context)
 
@@ -145,10 +172,15 @@ class SlackGPTBot:
             bot_user_id = context['bot_user_id']
             user_id = context['user_id']
 
+            #Use Sheela's id for testing
+            user_id = "URRC5BGAF"
+
             self.logging_wrapper("Milestone", logging.DEBUG, 
                     milestone="Fetching user information from slack",
                     user_id=user_id)
             user = self.get_user_information(user_id)
+
+            print(user)
 
             '''
             How to lock the bot to a particular channel
@@ -166,14 +198,15 @@ class SlackGPTBot:
                 )
                 return
             '''
-            slack_resp = app.client.chat_postMessage(
+            slack_resp = self.app.client.chat_postMessage(
                 channel=channel_id,
                 thread_ts=thread_ts,
-                text=self.build_personalized_wait_message(user.first_name)
+                text=self.build_personalized_wait_message(user.real_name)
             )
 
             self.logging_wrapper("Milestone", logging.DEBUG, 
                     milestone="Fetching conversation history from slack",
+                    user_id=user_id,
                     email=user.email,
                     channel=channel_id,
                     thread_ts=thread_ts)
@@ -183,6 +216,7 @@ class SlackGPTBot:
 
             self.logging_wrapper("Milestone", logging.DEBUG, 
                     milestone="Processing conversation history from slack",
+                    user_id=user_id,
                     email=user.email,
                     channel=channel_id,
                     thread_ts=thread_ts)
@@ -240,6 +274,7 @@ class SlackGPTBot:
                             model_used=model,
                             token_count=token_count,
                             token_used_count=num_conversation_tokens,
+                            user_id=user_id,
                             email=user.email,
                             request=messages[-1])
     
@@ -250,7 +285,7 @@ class SlackGPTBot:
                 max_tokens=max_response_tokens #if this drops below 0, openai should throw an exception
             )
             
-            slack_update_func = partial(update_chat, app, channel_id, reply_message_ts)
+            slack_update_func = partial(update_chat, self.app, channel_id, reply_message_ts)
             response_text = self.stream_openai_response_to_slack(openai_response, slack_update_func)
 
             self.logging_wrapper("RequestResponse", logging.INFO,
@@ -259,6 +294,7 @@ class SlackGPTBot:
                 max_response_tokens=max_response_tokens,
                 channel_id=channel_id,
                 thread_ts=thread_ts,
+                user_id=user_id,
                 user=user.username, 
                 email=user.email,
                 request=messages[-1],   #Get the last request from the messages array
@@ -272,12 +308,13 @@ class SlackGPTBot:
                 max_response_tokens=max_response_tokens,
                 channel_id=channel_id, 
                 thread_ts=thread_ts,
+                user_id=user_id,
                 user=user.username, 
                 email=user.email,
                 request=messages[-1],
                 exception=e
             )
-            app.client.chat_postMessage(
+            self.app.client.chat_postMessage(
                 channel=channel_id,
                 thread_ts=thread_ts,
                 text=f"Sorry, I can't provide a response. Encountered an error:\n`\n{e}\n`")
