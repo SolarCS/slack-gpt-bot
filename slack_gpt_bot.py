@@ -172,6 +172,9 @@ class SlackGPTBot:
             bot_user_id = context['bot_user_id']
             user_id = context['user_id']
 
+            #Impersonate A User Here
+            user_id = "U01AQPTGL6T"
+
             self.logging_wrapper("Milestone", logging.DEBUG, 
                     milestone="Fetching user information from slack",
                     user_id=user_id)
