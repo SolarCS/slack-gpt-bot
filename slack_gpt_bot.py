@@ -173,7 +173,6 @@ class SlackGPTBot:
             user_id = context['user_id']
 
             #Impersonate A User Here
-            user_id = "U01AQPTGL6T"
 
             self.logging_wrapper("Milestone", logging.DEBUG, 
                     milestone="Fetching user information from slack",
