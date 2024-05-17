@@ -7,7 +7,7 @@ from utils import (N_CHUNKS_TO_CONCAT_BEFORE_UPDATING, OPENAI_API_KEY,
                    num_tokens_from_messages, process_conversation_history,
                    update_chat)
 
-import openai
+from openai import OpenAI
 
 #Logging Configuration
 DEBUG = False
@@ -18,44 +18,26 @@ else:
     logging.basicConfig(level=logging.INFO)
     json_std_logger.setLevel (logging.INFO)
 
-openai.api_key = OPENAI_API_KEY
-
 ################################################
-# GPT 3.5 Models
-OPENAI_MODEL_DEFAULT = "gpt-3.5-turbo"
-OPENAI_MODEL_MAX_TOKENS = 4096
-
-OPENAI_MODEL_CROSSOVER_POINT = OPENAI_MODEL_MAX_TOKENS * 0.75
-
-OPENAI_MODEL_EXTENDED = "gpt-3.5-turbo-16k"
-OPENAI_MODEL_EXTENDED_MAX_TOKENS = 16384
 #-----------------------------------------------
 # GPT 4 Models
-OPENAI_MODEL_4_DEFAULT = "gpt-4"
-OPENAI_MODEL_4_MAX_TOKENS = 8192 - 1
+OPENAI_MODEL_4_OHHHH = "gpt-4o"
+OPENAI_MODEL_4_OHHHH_TOKENS = 128000
 
-OPENAI_MODEL_4_CROSSOVER_POINT = OPENAI_MODEL_4_MAX_TOKENS * 0.75
-
-OPENAI_MODEL_4_EXTENDED = "gpt-4-32k-0613"
-OPENAI_MODEL_4_EXTENDED_MAX_TOKENS = 32768 - 1
-
-'''
-https://help.openai.com/en/articles/7102672-how-can-i-access-gpt-4
-
-8/1/23: We are not currently granting access to GPT-4-32K API at this time, 
-but it will be made available at a later date.
-'''
-OPENAI_MODEL_4_EXTENDED_FEATURE_FLAG = False
 #-----------------------------------------------
 # Model to use
-OPENAI_MODEL_IN_USE = OPENAI_MODEL_4_DEFAULT
+OPENAI_MODEL_IN_USE = OPENAI_MODEL_4_OHHHH
 ################################################
 
 User = namedtuple('User', ('user_id','username','real_name','email'))
 class SlackGPTBot:
-    def __init__(self, app, model_to_use):
+    def __init__(self, app, model_to_use=OPENAI_MODEL_4_OHHHH, model_tokens=OPENAI_MODEL_4_OHHHH_TOKENS):
         self.app = app
         self.model_to_use = model_to_use
+        self.model_tokens = model_tokens
+        self.openai_client = OpenAI(
+            api_key=OPENAI_API_KEY
+        )
 
     def get_conversation_history(self, channel_id, thread_ts):
         return self.app.client.conversations_replies(
@@ -117,33 +99,11 @@ class SlackGPTBot:
         func = log.get(severity, json_std_logger.info)
         func(message)
 
-    '''
-    gpt-3.5-turbo-16k offers 4 times the context length of gpt-3.5-turbo at twice the price: 
-    $0.003 per 1K input tokens and $0.004 per 1K output tokens. 
-
-    So if the conversation exceeds the cutoff, then switch to using the extended model. Otherwise, use 
-    the standard model, as that seems fine for most conversations at this point.
-    '''
-    def determine_openai_model_3_5_to_use(self, input_token_count):
-        if input_token_count > OPENAI_MODEL_CROSSOVER_POINT:
-            return (OPENAI_MODEL_EXTENDED, OPENAI_MODEL_EXTENDED_MAX_TOKENS)
-        else:
-            return (OPENAI_MODEL_DEFAULT, OPENAI_MODEL_MAX_TOKENS)
-
-    def determine_openai_model_4_to_use(self, input_token_count):
-        if OPENAI_MODEL_4_EXTENDED_FEATURE_FLAG:
-            if input_token_count > OPENAI_MODEL_4_CROSSOVER_POINT:
-                return (OPENAI_MODEL_4_EXTENDED, OPENAI_MODEL_4_EXTENDED_MAX_TOKENS)
-            else:
-                return (OPENAI_MODEL_4_DEFAULT, OPENAI_MODEL_4_MAX_TOKENS)
-        else:
-            return (OPENAI_MODEL_4_DEFAULT, OPENAI_MODEL_4_MAX_TOKENS)
-
     def stream_openai_response_to_slack(self, openai_response, slack_update_func):
         response_text = ""
         ii = 0
         for chunk in openai_response:
-            if chunk.choices[0].delta.get('content'):
+            if chunk.choices[0].delta.content is not None:
                 ii = ii + 1
                 response_text += chunk.choices[0].delta.content
                 if ii > N_CHUNKS_TO_CONCAT_BEFORE_UPDATING:
@@ -161,7 +121,6 @@ class SlackGPTBot:
         max_response_tokens = None
         channel_id = None
         thread_ts = None
-        model = None
         token_count = None
 
         try:
@@ -222,8 +181,7 @@ class SlackGPTBot:
             self.logging_wrapper("Milestone", logging.DEBUG, 
                     milestone="Counting tokens",
                     messages=messages)
-            # num_conversation_tokens = num_tokens_from_messages(messages, OPENAI_MODEL_DEFAULT)
-            num_conversation_tokens = num_tokens_from_messages(messages, OPENAI_MODEL_IN_USE)
+            num_conversation_tokens = num_tokens_from_messages(messages, self.model_to_use)
             
             '''
             print(openai.Model.list())
@@ -262,31 +220,29 @@ class SlackGPTBot:
             #Pick the model to use based on the number of tokens used thus far
             #picking the extended model, means spending more, so only select that when 
             #necessary
-            # model, token_count = determine_openai_model_3_5_to_use(num_conversation_tokens)
-            model, token_count = self.determine_openai_model_4_to_use(num_conversation_tokens)
+            # model, token_count = OPENAI_MODEL_4_OHHHH, OPENAI_MODEL_4_OHHHH_TOKENS)
 
-            max_response_tokens = token_count-num_conversation_tokens
+            max_response_tokens = self.model_tokens-num_conversation_tokens
             self.logging_wrapper("Milestone", logging.DEBUG, 
                             milestone="Forwarding request to OpenAI",
-                            model_used=model,
-                            token_count=token_count,
+                            model_used=self.model_to_use,
+                            token_count=self.model_tokens,
                             token_used_count=num_conversation_tokens,
                             user_id=user_id,
                             email=user.email,
                             request=messages[-1])
     
-            openai_response = openai.ChatCompletion.create(
-                model=model,
+            openai_response = self.openai_client.chat.completions.create(
+                model=self.model_to_use,
                 messages=messages,
-                stream=True,
-                max_tokens=max_response_tokens #if this drops below 0, openai should throw an exception
+                stream=True
             )
-            
+
             slack_update_func = partial(update_chat, self.app, channel_id, reply_message_ts)
             response_text = self.stream_openai_response_to_slack(openai_response, slack_update_func)
 
             self.logging_wrapper("RequestResponse", logging.INFO,
-                model_used=model,
+                model_used=self.model_to_use,
                 token_used_count=num_conversation_tokens,
                 max_response_tokens=max_response_tokens,
                 channel_id=channel_id,
@@ -300,7 +256,7 @@ class SlackGPTBot:
         
         except Exception as e:
             self.logging_wrapper("Exception", logging.ERROR, 
-                model_used=model,
+                model_used=self.model_to_use,
                 token_used_count=num_conversation_tokens,
                 max_response_tokens=max_response_tokens,
                 channel_id=channel_id, 

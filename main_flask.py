@@ -3,11 +3,11 @@ Slack GPT Chat Bot
 Powered by a Slack Request URL, /slack/events, and the Python Flask framework
 '''
 
-from slack_gpt_bot import (SlackGPTBot, OPENAI_MODEL_4_DEFAULT)
+from slack_gpt_bot import (SlackGPTBot)
 from slack_bolt import App
 
 app = App()
-slack_gpt_bot = SlackGPTBot(app, OPENAI_MODEL_4_DEFAULT)
+slack_gpt_bot = SlackGPTBot(app)
 
 ################################################
 
