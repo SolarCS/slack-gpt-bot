@@ -24,6 +24,11 @@ else:
 OPENAI_MODEL_4_OHHHH = "gpt-4o"
 OPENAI_MODEL_4_OHHHH_TOKENS = 128000
 
+#based on the way tokens are counted for other models, this 
+#is roughly the max length of a single Slack message in tokens
+#(4000) characters
+OPENAI_MODEL_4_OHHHH_MAX_TOKENS = 730
+
 #-----------------------------------------------
 # Model to use
 OPENAI_MODEL_IN_USE = OPENAI_MODEL_4_OHHHH
@@ -235,7 +240,8 @@ class SlackGPTBot:
             openai_response = self.openai_client.chat.completions.create(
                 model=self.model_to_use,
                 messages=messages,
-                stream=True
+                stream=True,
+                max_tokens=OPENAI_MODEL_4_OHHHH_MAX_TOKENS
             )
 
             slack_update_func = partial(update_chat, self.app, channel_id, reply_message_ts)
