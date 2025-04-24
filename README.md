@@ -23,14 +23,14 @@ Additional logging components have been added for compliance purposes to track a
 See `requirements.txt`.
 
 # Installation
-## Building the bot 
+## Building the WebSocket Bot 
 Build the container (generic)
 ```
-docker build . -t slack-gpt-bot
+docker build . -f Dockerfile.websockets -t slack-gpt-bot:TAG
 ```
 Tag it for the GCR (Generic example)
 ```
-docker tag slack-gpt-bot us.gcr.io/PROJECT_ID/slack-gpt-bot:TAG
+docker tag slack-gpt-bot:TAG us.gcr.io/PROJECT_ID/slack-gpt-bot:TAG
 ```
 Push to the GCR (Generic example)
 ```
@@ -39,9 +39,11 @@ docker push us.gcr.io/PROJECT_ID/slack-gpt-bot:TAG
 ***Beta Specifics***
 
 ```
-docker build . -t slack-gpt-bot
-docker tag slack-gpt-bot us.gcr.io/qaload-track-atlas-ch-e4e9/slack-gpt-bot:latest
-docker push us.gcr.io/qaload-track-atlas-ch-e4e9/slack-gpt-bot:latest
+docker build . -f Dockerfile.websockets -t slack-gpt-bot:v<tag>
+docker tag slack-gpt-bot:<tag> us.gcr.io/qaload-track-atlas-ch-e4e9/slack-gpt-bot:<tag>
+docker push us.gcr.io/qaload-track-atlas-ch-e4e9/slack-gpt-bot:<tag>
+git tag -a v<TAG> -m <message>
+git push origin v<TAG>
 ```
 ## Deploying the bot
 The bot leverages sockets which do not play nice with CloudRun, as such it is to be deployed as a container to GCE directly.
